@@ -18,13 +18,13 @@ namespace ListDownloader.CUI
             var kernel = setupNinject(5);
 
             var downloader = kernel.Get<IDownloader>();
-            var links = File.ReadAllLines(@"C:\Dropbox\vizer\shared\hentaiOnline\sample.txt");
+            var links = File.ReadAllLines(@"");
 
             var timer = new Stopwatch();
             downloader.FileDownloaded += (o, e) => { showProgress(e.FilesDownloaded, e.FilesTotal, timer); };
 
             timer.Start();
-            downloader.DownloadAll(links, @"C:\temp");
+            downloader.DownloadAll(links, @"");
 
             Console.ReadKey();
         }
