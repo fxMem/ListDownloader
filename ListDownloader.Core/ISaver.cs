@@ -1,14 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace ListDownloader.Core
 {
-    public class FileDownloadedEventArgs : EventArgs
+    public interface ISaver
     {
-        public int FilesTotal { get; set; }
-        public int FilesDownloaded { get; set; }
+        Task Save(string link, Stream data);
     }
 }

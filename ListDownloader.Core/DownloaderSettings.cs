@@ -6,11 +6,8 @@ using System.Threading.Tasks;
 
 namespace ListDownloader.Core
 {
-    public class FileDownloadFailedEventArgs : EventArgs
+    public class DownloaderSettings
     {
-        public string Link { get; set; }
-
-        public string ErrorMessage { get; set; }
-
+        public int? SimultaneousDownloads { get; set; }
     }
 }

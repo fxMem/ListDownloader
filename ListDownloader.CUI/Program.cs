@@ -5,9 +5,9 @@ using System.Text;
 using System.Threading.Tasks;
 using System.IO;
 using System.Diagnostics;
-
 using Ninject;
 using ListDownloader.Core;
+using System.Threading;
 
 namespace ListDownloader.CUI
 {
@@ -15,114 +15,102 @@ namespace ListDownloader.CUI
     {
         static void Main(string[] args)
         {
-            string sourceFilePath, destDirectoryPath;
-            int threadCount;
-
-            if (args.Length == 3)
+            if (args.Length != 3)
             {
-                sourceFilePath = args[0];
-                destDirectoryPath = args[1];
-                threadCount = Int32.Parse(args[2]);
-            }
-            else
-            {
-                Console.WriteLine("Arguments must be: " + System.AppDomain.CurrentDomain.FriendlyName + " <0> <1> <2>");
-                Console.WriteLine("<0> Path to links file");
-                Console.WriteLine("<1> Destination dir (Created if not exists)");
-                Console.WriteLine("<2> Threads count");
+                PrintWelcome();
                 return;
             }
 
-            if (! ( checkSourceFile(sourceFilePath) && 
-                checkDestDirectory(destDirectoryPath) && 
-                checkTreadCount(threadCount)) )
+            Trace.Listeners.Clear();
+            Trace.Listeners.Add(new TextWriterTraceListener(Console.Out));
+
+            var sourceFilePath = args[0];
+            var destDirectoryPath = args[1];
+
+            int threadCount = 0;
+            Int32.TryParse(args[2], out threadCount);
+
+            if (!CheckFileExists(sourceFilePath))
             {
+                Console.WriteLine($"Source file {sourceFilePath} doesn't exist!");
                 return;
             }
-            
-            Console.WriteLine("Starting downloading..");
 
-            var kernel = setupNinject(threadCount);
+            if (!TryCreateDirectory(destDirectoryPath))
+            {
+                Console.WriteLine($"Cannot find destination directory {destDirectoryPath}!");
+                return;
+            }
 
-            var downloader = kernel.Get<IDownloader>();
+            var kernel = SetupNinject(threadCount, destDirectoryPath);
+
+            var downloader = kernel.Get<Downloader>();
             var links = File.ReadAllLines(sourceFilePath);
 
             var timer = new Stopwatch();
-            downloader.FileDownloaded += (o, e) => { showProgress(e.FilesDownloaded, e.FilesTotal, timer); };
+            Console.WriteLine("Starting downloading!");
 
             timer.Start();
-            downloader.DownloadAll(links, destDirectoryPath);
-
-            Console.ReadKey();
+            // Do not be scared of sync wait, it's just demonstration
+            downloader.Download(links, 
+                CancellationToken.None, 
+                new Progress<DownloadProgress>(PrintProgress)).Wait();
             timer.Stop();
+
+            Console.WriteLine("Finished! Elapsed time = {0}", timer.Elapsed);
         }
 
-        private static void showProgress(int downloaded, int total, Stopwatch t)
+        private static void PrintWelcome()
         {
-            Console.Write("\r Loaded: [{0} / {1}], {2:##0.}% total.", downloaded, total, ((double)downloaded / total) * 100);
-
-            if (downloaded == total)
-            {
-                Console.WriteLine();
-                Console.WriteLine("Time = {0}", t.Elapsed);
-            }
+            Console.WriteLine("Arguments must be: " + System.AppDomain.CurrentDomain.FriendlyName + " <0> <1> <2>");
+            Console.WriteLine("<0> Path to links file");
+            Console.WriteLine("<1> Destination dir (Created if not exists)");
+            Console.WriteLine("<2> Threads count");
         }
 
-        private static IKernel setupNinject(int threadNumber)
+        private static void PrintProgress(DownloadProgress progress)
+        {
+            Console.Write("\r Loaded: [{0} / {1}], {2}% total. ", 
+                progress.Downloaded, 
+                progress.Total, 
+                (int)Math.Ceiling(progress.Downloaded * 100d / progress.Total));
+        }
+
+        private static IKernel SetupNinject(int threadNumber, string outputDirectory)
         {
             var kernel = new StandardKernel();
             kernel.Bind<IFilenameParser>().To<FilenameParser>();
-            //kernel.Bind<IDownloader>().To<SyncDownloader>();
-            kernel.Bind<IDownloader>().ToConstructor
-                (
-                    arg
-                        =>
-                    new AsyncDownloader(threadNumber, arg.Inject<IFilenameParser>())
-                );
+
+            var directorySaver = kernel.Get<DirectorySaver>();
+            directorySaver.SetOutputDirectory(outputDirectory);
+            kernel.Bind<ISaver>().ToConstant(directorySaver);
+
+            kernel.Bind<DownloaderSettings>().ToConstant(new DownloaderSettings
+            {
+                SimultaneousDownloads = threadNumber != 0 ? threadNumber : (int?)null
+            });
 
             return kernel;
         }
 
-        private static bool checkSourceFile(string path)
+        private static bool CheckFileExists(string path)
         {
-            if (!File.Exists(path))
-            {
-                Console.WriteLine("Source file doesnt exist...");
-                return false;
-            }
-                
-            return true;
+            return File.Exists(path);
         }
 
-        private static bool checkDestDirectory(string destDirectoryPath)
+        private static bool TryCreateDirectory(string destDirectoryPath)
         {
             if (!Directory.Exists(destDirectoryPath))
             {
                 try
                 {
                     Directory.CreateDirectory(destDirectoryPath);
-                    Console.WriteLine("Directory " + destDirectoryPath + " created!");
                 }
                 catch
                 {
-                    Console.WriteLine("Cant find or create directory. Aborting...");
                     return false;
                 }
             }
-
-            return true;
-        }
-
-        private static bool checkTreadCount(int threadCount)
-        {
-            if (threadCount <= 0)
-            {
-                Console.WriteLine("Threads number cant be 0 or less...");
-                return false;
-            }
-                
-
-            System.Net.ServicePointManager.DefaultConnectionLimit = threadCount;
 
             return true;
         }
